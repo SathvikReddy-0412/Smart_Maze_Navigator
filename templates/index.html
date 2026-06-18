@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Maze Navigator</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <h1>Smart Maze Navigator</h1>
+        <p>AI Decision Making under Uncertainty</p>
+    </header>
+
+    <div class="container">
+        <!-- Control Panel (Swapped to Left) -->
+        <div class="controls">
+            <h2 style="color: var(--secondary); font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem;">Control Panel</h2>
+            
+            <form action="/solve" method="POST" style="display: flex; flex-direction: column; gap: 1.2rem;">
+                <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    <label for="algoSelect">Select Search Algorithm</label>
+                    <select id="algoSelect" name="algorithm">
+                        <option value="bfs" {% if algorithm == 'BFS' %}selected{% endif %}>Breadth First Search (BFS)</option>
+                        <option value="dfs" {% if algorithm == 'DFS' %}selected{% endif %}>Depth First Search (DFS)</option>
+                        <option value="astar" {% if algorithm == 'ASTAR' %}selected{% endif %}>A* Search (Informed)</option>
+                        <option value="utility" {% if algorithm == 'UTILITY' %}selected{% endif %}>Utility Search (Decision Making)</option>
+                        <option value="csp" {% if algorithm == 'CSP' %}selected{% endif %}>CSP Search (Constraint-Based)</option>
+                        <option value="mdp" {% if algorithm == 'MDP' %}selected{% endif %}>MDP Value Iteration (Markov)</option>
+                    </select>
+                </div>
+
+                <!-- Safety Constraint Number Input -->
+                <div style="display: flex; flex-direction: column; gap: 0.3rem;">
+                    <label for="maxDanger">Max Cell Danger Limit (%)</label>
+                    <input type="number" id="maxDanger" name="max_danger" min="10" max="100" step="5" value="{{ (max_danger * 100)|int }}" class="num-input">
+                </div>
+
+                <!-- Step Budget Constraint Number Input -->
+                <div style="display: flex; flex-direction: column; gap: 0.3rem;">
+                    <label for="stepBudget">Step Budget (Max Steps)</label>
+                    <input type="number" id="stepBudget" name="step_budget" min="10" max="200" step="1" value="{{ step_budget }}" class="num-input">
+                </div>
+
+                <!-- Energy Budget Constraint Number Input -->
+                <div style="display: flex; flex-direction: column; gap: 0.3rem;">
+                    <label for="energyBudget">Energy Budget (Units)</label>
+                    <input type="number" id="energyBudget" name="energy_budget" min="10" max="300" step="1" value="{{ energy_budget }}" class="num-input">
+                </div>
+                
+                <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: -0.2rem; margin-bottom: 0.2rem;">
+                    <input type="checkbox" id="checkpointConstraint" name="use_checkpoint" value="true" {% if use_checkpoint %}checked{% endif %} style="width: auto; cursor: pointer; transform: scale(1.1);">
+                    <label for="checkpointConstraint" style="text-transform: none; font-size: 0.85rem; color: #cbd5e1; cursor: pointer; margin-bottom: 0;">Stop at Checkpoint (C)</label>
+                </div>
+                
+                <button type="submit" class="primary">Solve Maze</button>
+                <div style="display: flex; gap: 0.8rem; width: 100%;">
+                    <a href="/" style="text-decoration: none; flex: 1;">
+                        <button type="button" style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08); width: 100%; padding: 0.7rem 1rem;">Reset</button>
+                    </a>
+                    <a href="/change_maze" style="text-decoration: none; flex: 1;">
+                        <button type="button" class="primary" style="width: 100%; padding: 0.7rem 1rem;">New Maze</button>
+                    </a>
+                </div>
+            </form>
+
+            <h3 style="color: var(--primary); font-size: 1.1rem; font-weight: 600; margin-top: 0.5rem;">Performance Metrics</h3>
+            <div class="stats-container">
+                <div class="stat-row">
+                    <span class="stat-label">Algorithm:</span>
+                    <span class="stat-value">{% if algorithm %}{{ algorithm }}{% else %}None{% endif %}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Execution Time:</span>
+                    <span class="stat-value">{% if execution_time is not none %}{{ (execution_time * 1000) | round(3) }} ms{% else %}-{% endif %}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Path Cost (Steps):</span>
+                    <span class="stat-value">{% if total_cost %}{{ total_cost }}{% else %}-{% endif %}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Path Safety (Success):</span>
+                    <span class="stat-value {% if path_safety and path_safety > 50 %}success{% elif path_safety %}danger{% endif %}">
+                        {% if path_safety is not none %}{{ path_safety }}%{% else %}-{% endif %}
+                    </span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Energy Consumed:</span>
+                    <span class="stat-value {% if path_energy is not none and path_energy <= energy_budget %}success{% elif path_energy %}danger{% endif %}">
+                        {% if path_energy is not none %}{{ path_energy }} / {{ energy_budget }} units{% else %}-{% endif %}
+                    </span>
+                </div>
+            </div>
+
+            {% if algorithm %}
+                {% if not path %}
+                    <div style="margin-top: 1rem; font-size: 0.85rem; padding: 0.8rem 1rem; border-radius: 0.75rem; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.25); color: #f87171; line-height: 1.4;">
+                        <strong style="color: #ef4444; display: block; margin-bottom: 0.2rem;">Constraints Unsatisfied</strong>
+                        {% if failure_reason %}
+                            {{ failure_reason }}
+                        {% else %}
+                            No path satisfies all safety, step, and energy budget constraints.
+                        {% endif %}
+                    </div>
+                {% else %}
+                    <div style="margin-top: 1rem; font-size: 0.85rem; padding: 0.8rem 1rem; border-radius: 0.75rem; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); color: #a7f3d0; line-height: 1.4;">
+                        <strong style="color: #10b981; display: block; margin-bottom: 0.2rem;">All Constraints Satisfied</strong>
+                        Successfully routed path within safety threshold, step budget, and energy limits.
+                    </div>
+                {% endif %}
+            {% endif %}
+
+            {% if algorithm %}
+            <div style="margin-top: 1rem; border-radius: 0.75rem; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.2); padding: 1.2rem; font-size: 0.9rem; line-height: 1.45;">
+                <h3 style="color: var(--secondary); font-size: 1.1rem; font-weight: 700; margin-bottom: 0.4rem; display: flex; align-items: center; gap: 0.4rem;">
+                    🌐 Real-World Application
+                </h3>
+                {% if algorithm == 'BFS' %}
+                    <strong style="color: var(--primary); display: block; margin-bottom: 0.25rem;">Emergency & Evacuation Routing</strong>
+                    BFS explores layers uniformly, guaranteeing the path with the fewest steps. In flood evacuations or building fires, BFS is used to map the fastest escape route to safety where every second counts and all passable corridors are equally safe.
+                {% elif algorithm == 'DFS' %}
+                    <strong style="color: var(--primary); display: block; margin-bottom: 0.25rem;">Subterranean Cave & Pipe Exploration</strong>
+                    DFS explores deep along a single path before backtracking. This is used by autonomous mapping drones in unknown subterranean caves, collapsed mines, or complex sewer pipe networks where exploring corridors to the end is preferred.
+                {% elif algorithm == 'ASTAR' %}
+                    <strong style="color: var(--primary); display: block; margin-bottom: 0.25rem;">GPS Vehicle Navigation (e.g. Google Maps)</strong>
+                    A* uses heuristics (estimated distance to destination) to dramatically speed up pathfinding. This is the foundation of modern GPS navigation systems, logistics routing, and video game pathfinding to find the shortest obstacle-free route.
+                {% elif algorithm == 'UTILITY' %}
+                    <strong style="color: var(--primary); display: block; margin-bottom: 0.25rem;">Hazardous Goods Transport (Hazmat Shipping)</strong>
+                    Utility Search balances path length against risk penalty (Utility = Cost + W * Danger). This is used in Hazmat logistics and military convoy routing to decide if taking a longer, safe bypass is better than a direct but high-risk route.
+                {% elif algorithm == 'CSP' %}
+                    <strong style="color: var(--primary); display: block; margin-bottom: 0.25rem;">Restricted Drone Flight Path Planning</strong>
+                    CSP treats safety as a hard constraint (e.g., drone must never enter zones with >50% wind turbulence and must remain under battery step budget). If no path satisfies all conditions, it halts flight instead of risking a crash.
+                {% elif algorithm == 'MDP' %}
+                    <strong style="color: var(--primary); display: block; margin-bottom: 0.25rem;">Robotic Mars Rover / Icy Road Navigation</strong>
+                    MDP models non-deterministic action uncertainty (80% move success, 10% slide risk) and computes optimal policies. This is used by Mars Rovers and self-driving cars on icy roads where actions are slippery and safety must be maximized dynamically.
+                {% endif %}
+            </div>
+            {% endif %}
+
+            <h3 style="color: var(--primary); font-size: 1.1rem; font-weight: 600; margin-top: 0.5rem;">Legend</h3>
+            <div class="legend">
+                <div class="legend-item"><div class="dot" style="background: var(--start)"></div> Start (S)</div>
+                <div class="legend-item"><div class="dot" style="background: var(--goal)"></div> Goal (G)</div>
+                <div class="legend-item"><div class="dot" style="background: var(--wall)"></div> Wall</div>
+                <div class="legend-item"><div class="dot" style="background: var(--final)"></div> Final Path</div>
+                <div class="legend-item"><div class="dot" style="background: var(--checkpoint)"></div> Checkpoint (C)</div>
+                <div class="legend-item" style="grid-column: span 2;">
+                    <div class="dot" style="border: 2px solid rgba(249, 115, 22, 0.6); background: rgba(249, 115, 22, 0.15);"></div> Danger Zone (Risk %)
+                </div>
+            </div>
+        </div>
+
+        <!-- Maze Grid Visualizer (Swapped to Right) -->
+        <div class="visualizer">
+            <h2 style="font-size: 1.4rem; font-weight: 700; align-self: flex-start; color: #f8fafc;">Maze Map</h2>
+            <div class="grid" style="grid-template-columns: repeat({{ maze[0]|length }}, 1fr); width: 100%; max-width: 500px;">
+                {% for r in range(maze|length) %}
+                    {% for c in range(maze[r]|length) %}
+                        {% set cell_val = maze[r][c] %}
+                        {% set is_in_path = (r, c) in path %}
+                        {% set p_danger = prob_map.get((r, c), 0.0) %}
+                        {% set is_danger_zone = p_danger > 0.1 and p_danger < 1.0 %}
+                        {% set is_blocked_by_safety = cell_val not in ('S', 'G', 'C') and cell_val != 1 and p_danger > max_danger %}
+                        
+                        <div class="cell 
+                            {% if cell_val == 'S' %}start
+                            {% elif cell_val == 'G' %}goal
+                            {% elif cell_val == 'C' %}checkpoint
+                            {% elif cell_val == 1 %}wall
+                            {% endif %}
+                            {% if is_danger_zone %}danger-zone{% endif %}
+                            {% if is_blocked_by_safety %}blocked-by-safety{% endif %}
+                            {% if is_in_path %}final{% endif %}"
+                            title="Coordinates: ({{ r }}, {{ c }}){% if p_danger > 0 %} | Danger: {{ (p_danger * 100)|int }}%{% endif %}{% if is_blocked_by_safety %} (Blocked by Safety Limit){% endif %}">
+                            
+                            {% if cell_val == 'S' %}S
+                            {% elif cell_val == 'G' %}G
+                            {% elif cell_val == 'C' %}C
+                            {% elif cell_val == 1 %}
+                            {% else %}
+                                {% if is_blocked_by_safety %}
+                                    <span class="danger-emoji" style="font-size: 0.85rem; line-height: 1; filter: grayscale(1);">🚫</span>
+                                {% elif is_danger_zone %}
+                                    <span class="danger-emoji" style="font-size: 0.8rem; line-height: 1;">⚠️</span>
+                                    {% if maze[0]|length <= 10 %}
+                                        <span class="danger-val">{{ (p_danger * 100)|int }}%</span>
+                                    {% endif %}
+                                {% endif %}
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</body>
+</html>
